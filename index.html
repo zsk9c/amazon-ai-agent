@@ -116,15 +116,18 @@
 <body>
 
   <div class="container">
-    <h1>亚马逊 AI 商业情报舱 (V2.0)</h1>
+    <h1>亚马逊 AI 商业情报舱 (V3.0)</h1>
 
-    <label>请输入美国亚马逊商品链接：</label>
+    <label>美国亚马逊商品链接（当前作为产品 ID 触发）：</label>
     <input type="text" id="urlInput" placeholder="https://www.amazon.com/dp/B07GBZ4Q68...">
+
+    <label>我想具体分析产品哪方面？（可选，不填默认全量分析）</label>
+    <input type="text" id="userQuery" placeholder="例如：电池怎么样？或者是 noise cancelling?">
 
     <label>请输入专属邀请码：</label>
     <input type="password" id="inviteCode" placeholder="输入 AI2026">
 
-    <button onclick="analyze()">启动深度商业分析</button>
+    <button onclick="analyze()">启动 RAG 记忆检索与商业分析</button>
 
     <div id="loading">AI 正在深度接管浏览器并提取商业情报，请耐心等待（约 15-30 秒）...</div>
     <div id="error" class="error"></div>
@@ -149,7 +152,9 @@
 
   <script>
     async function analyze() {
+      // 获取新的输入项
       const url = document.getElementById('urlInput').value;
+      const userQuery = document.getElementById('userQuery').value; // 新增获取
       const inviteCode = document.getElementById('inviteCode').value;
       const loading = document.getElementById('loading');
       const resultDiv = document.getElementById('result');
@@ -167,8 +172,11 @@
       try {
         const response = await fetch('https://wackier-doretha-muggily.ngrok-free.dev/api/analyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url, invite_code: inviteCode })
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: JSON.stringify({ url: url, user_query: userQuery, invite_code: inviteCode })
         });
 
         if (!response.ok) {
