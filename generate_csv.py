@@ -36,11 +36,11 @@ corpora = {
 }
 
 # 3. 极速造数核心逻辑
-print("正在生成极致真实的 100 条鼠标商业评论 CSV，请保持专注...")
+print("正在生成极致真实的 1000 条鼠标商业评论 CSV，请保持专注...")
 
 reviews = []
 # 循环生成 100 条评论
-for _ in range(100):
+for _ in range(1000):
     # 随机选择一个商业维度
     category = random.choice(list(corpora.keys()))
     # 随机选择 Pro（优点）或 Con（缺点）风格
@@ -57,4 +57,4 @@ df = pd.DataFrame(reviews, columns=['ReviewText'])
 # 如果本地已有 mock_data.csv，强制覆盖
 df.to_csv('mock_data.csv', index=False)
 
-print(f"造数成功！包含 100 条多维度商业语料的 'mock_data.csv' 已生成在你的项目根目录下。")
+print(f"造数成功！包含 1000 条多维度商业语料的 'mock_data.csv' 已生成在你的项目根目录下。")
