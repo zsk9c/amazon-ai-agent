@@ -1,4 +1,4 @@
-# main.py
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from schemas import ProductRequest
@@ -38,3 +38,7 @@ def analyze_product(request: ProductRequest):
     except Exception as e:
         print(f"执行出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    print("正在启动 Amazon AI Agent 服务...")
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
