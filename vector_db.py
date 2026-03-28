@@ -4,6 +4,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 # 数据库存储路径
 DB_DIR = "./chroma_db"
@@ -12,7 +13,8 @@ CSV_PATH = "mock_data.csv"
 # 1. 初始化免费的 Embedding 模型 (大脑记忆编码器)
 # 我们使用一个体积小、效果好的开源小模型，不需要额外花钱调用 API
 print("正在加载 Embedding 模型（约需 10 秒），请保持专注...")
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# 将 all-MiniLM-L6-v2 替换为 paraphrase-multilingual-MiniLM-L12-v2
+embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 # 局部复盘机制：如果数据库已存在，我们就不用每次重新编码
 def ingest_data_if_needed():

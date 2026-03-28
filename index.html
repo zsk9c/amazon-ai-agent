@@ -118,8 +118,8 @@
   <div class="container">
     <h1>亚马逊 AI 商业情报舱 (V3.0)</h1>
 
-    <label>美国亚马逊商品链接（当前作为产品 ID 触发）：</label>
-    <input type="text" id="urlInput" placeholder="https://www.amazon.com/dp/B07GBZ4Q68...">
+    <label>美国亚马逊商品链接（选填：填写则启动在线实时抓取）：</label>
+    <input type="text" id="urlInput" placeholder="选填。若留空，则启动本地 RAG 数据库检索">
 
     <label>我想具体分析产品哪方面？（可选，不填默认全量分析）</label>
     <input type="text" id="userQuery" placeholder="例如：电池怎么样？或者是 noise cancelling?">
@@ -204,7 +204,16 @@
         });
 
         // 渲染客服邮件模板
-        document.getElementById('emailTemplate').innerText = data.auto_reply_template;
+        // 健壮性防御：无论大模型吐出数组、对象还是字符串，强行转化为人类可读文本
+        let templateData = data.auto_reply_template;
+        if (typeof templateData === 'object' && templateData !== null) {
+          // 如果是对象或数组，格式化为带缩进的字符串
+          templateData = JSON.stringify(templateData, null, 2);
+        } else if (Array.isArray(templateData)) {
+          // 如果是数组，强行用换行符拼接
+          templateData = templateData.join('\n');
+        }
+        document.getElementById('emailTemplate').innerText = templateData;
 
         resultDiv.style.display = 'block';
       } catch (error) {
