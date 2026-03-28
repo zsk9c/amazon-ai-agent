@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>亚马逊 AI 商业情报舱 (V2.0)</title>
+  <title>亚马逊 AI 商业情报舱 (V3.0 Hybrid)</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -38,6 +38,33 @@
       border: 1px solid #d1d5db;
       border-radius: 6px;
       box-sizing: border-box;
+      transition: all 0.3s;
+    }
+
+    /* 新增：被禁用的输入框样式 */
+    input:disabled {
+      background-color: #e5e7eb;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    .mode-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+
+    .mode-online {
+      background-color: #dbeafe;
+      color: #1e40af;
+    }
+
+    .mode-offline {
+      background-color: #dcfce3;
+      color: #166534;
     }
 
     button {
@@ -118,18 +145,24 @@
   <div class="container">
     <h1>亚马逊 AI 商业情报舱 (V3.0)</h1>
 
-    <label>美国亚马逊商品链接（选填：填写则启动在线实时抓取）：</label>
-    <input type="text" id="urlInput" placeholder="选填。若留空，则启动本地 RAG 数据库检索">
+    <div>
+      <span class="mode-badge mode-online">模式 A：在线实时抓取</span>
+      <label>美国亚马逊商品链接：</label>
+      <input type="text" id="urlInput" placeholder="输入链接，将自动禁用下方的问题框" oninput="toggleInputMode()">
+    </div>
 
-    <label>我想具体分析产品哪方面？（可选，不填默认全量分析）</label>
-    <input type="text" id="userQuery" placeholder="例如：电池怎么样？或者是 noise cancelling?">
+    <div>
+      <span class="mode-badge mode-offline">模式 B：本地 RAG 精准检索</span>
+      <label>你想具体分析产品哪方面？</label>
+      <input type="text" id="userQuery" placeholder="输入问题（如：电池怎么样），将自动禁用上方链接框" oninput="toggleInputMode()">
+    </div>
 
     <label>请输入专属邀请码：</label>
     <input type="password" id="inviteCode" placeholder="输入 AI2026">
 
-    <button onclick="analyze()">启动 RAG 记忆检索与商业分析</button>
+    <button onclick="analyze()">启动双引擎分析</button>
 
-    <div id="loading">AI 正在深度接管浏览器并提取商业情报，请耐心等待（约 15-30 秒）...</div>
+    <div id="loading">AI 正在调度底层引擎，请耐心等待...</div>
     <div id="error" class="error"></div>
 
     <div id="result" class="result-section">
@@ -151,17 +184,37 @@
   </div>
 
   <script>
+    // 核心逻辑 1：输入框互斥与灰显控制
+    function toggleInputMode() {
+      const urlInput = document.getElementById('urlInput');
+      const queryInput = document.getElementById('userQuery');
+
+      if (urlInput.value.trim() !== '') {
+        // 填了 URL，禁用并置灰问题框
+        queryInput.disabled = true;
+        queryInput.value = ''; // 清空可能残留的值
+      } else if (queryInput.value.trim() !== '') {
+        // 填了问题，禁用并置灰 URL 框
+        urlInput.disabled = true;
+        urlInput.value = '';
+      } else {
+        // 都没填，恢复双向可用
+        urlInput.disabled = false;
+        queryInput.disabled = false;
+      }
+    }
+
     async function analyze() {
-      // 获取新的输入项
       const url = document.getElementById('urlInput').value;
-      const userQuery = document.getElementById('userQuery').value; // 新增获取
+      const userQuery = document.getElementById('userQuery').value;
       const inviteCode = document.getElementById('inviteCode').value;
       const loading = document.getElementById('loading');
       const resultDiv = document.getElementById('result');
       const errorDiv = document.getElementById('error');
 
-      if (!url || !inviteCode) {
-        errorDiv.innerText = "错误：请完整填写链接和邀请码。";
+      // 核心逻辑 2：修复过严的拦截验证。只需保证填了邀请码，且 URL 或 问题 至少填了一个
+      if (!inviteCode || (url.trim() === '' && userQuery.trim() === '')) {
+        errorDiv.innerText = "错误：请提供邀请码，并选择填写商品链接或分析问题（二选一）。";
         return;
       }
 
@@ -185,7 +238,7 @@
 
         const data = await response.json();
 
-        // 渲染痛点列表
+        // 渲染列表
         const painUl = document.getElementById('painPointsList');
         painUl.innerHTML = '';
         data.pain_points.forEach(item => {
@@ -194,7 +247,6 @@
           painUl.appendChild(li);
         });
 
-        // 渲染卖点列表
         const sellingUl = document.getElementById('sellingProposalsList');
         sellingUl.innerHTML = '';
         data.selling_proposals.forEach(item => {
@@ -203,14 +255,11 @@
           sellingUl.appendChild(li);
         });
 
-        // 渲染客服邮件模板
-        // 健壮性防御：无论大模型吐出数组、对象还是字符串，强行转化为人类可读文本
+        // 核心逻辑 3：修复大模型吐出 JSON 对象的渲染崩溃问题
         let templateData = data.auto_reply_template;
         if (typeof templateData === 'object' && templateData !== null) {
-          // 如果是对象或数组，格式化为带缩进的字符串
           templateData = JSON.stringify(templateData, null, 2);
         } else if (Array.isArray(templateData)) {
-          // 如果是数组，强行用换行符拼接
           templateData = templateData.join('\n');
         }
         document.getElementById('emailTemplate').innerText = templateData;
