@@ -2,3 +2,4 @@ __pycache__/
 .env
 .venv/
 http.txt
+chroma_db/
