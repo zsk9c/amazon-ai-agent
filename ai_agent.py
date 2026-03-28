@@ -1,3 +1,4 @@
+import time
 import requests
 import json
 import os
@@ -62,27 +63,35 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
         "Content-Type": "application/json"
     }
     
+    # 核心优化 1：极限物理截断，将上下文压榨至 800 字符，防止 TPM 击穿
+    pruned_context = context_text[:800]
+    
     writer_system_prompt = """你是一个资深的跨境电商产品总监。
     请根据以下检索到的【精准评论上下文】，输出规范的 JSON 分析报告。绝不能捏造上下文中不存在的信息！
     严格遵守格式：
-    1. 'pain_points': 基于缺陷提炼建议。（字符串数组，【简体中文】。数量根据上下文实际情况决定，如无提及请写 ["无"]）
-    2. 'selling_proposals': 基于赞点提炼卖点。（字符串数组，【简体中文】。数量根据上下文实际情况决定，如无提及请写 ["无"]）
+    1. 'pain_points': 基于缺陷提炼建议。（字符串数组，【简体中文】。数量根据实际情况，无则写 ["无"]）
+    2. 'selling_proposals': 基于赞点提炼卖点。（字符串数组，【简体中文】。数量根据实际情况，无则写 ["无"]）
     3. 'auto_reply_template': 撰写专业客服邮件模板。（字符串，【纯英文】）"""
 
     critic_system_prompt = """你是一个极其严苛的数据审查员 (Critic)。
-    你的唯一任务是核对 Writer 生成的报告是否出现了【幻觉】（即：报告中提到了原始上下文中根本没有提到的缺陷或卖点）。
+    你的唯一任务是核对 Writer 生成的报告是否出现了【幻觉】。
     请输出 JSON：
     {"is_hallucinating": true或false, "feedback": "如果造假，严厉指出哪里捏造了；如果没有捏造，输出'无'。"}"""
 
     feedback_history = ""
-    max_retries = 1
+    # 核心优化 2：降低最大重试次数为 1，最多只允许一次返工
+    max_retries = 2 
 
-    # 多脑协同控制流：While 重试机制
     for attempt in range(max_retries):
+        # 核心优化 3：ATP 恢复机制 (如果是重试，强制休眠 6 秒，避开每分钟并发限制)
+        if attempt > 0:
+            print(f"[系统保护] -> 触发 Token 速率限制保护，强制休眠 6 秒...")
+            time.sleep(6)
+
         print(f"\n[多脑协同] -> Agent A (Writer) 正在进行第 {attempt + 1} 次起草...")
         
-        # 1. 组装 Writer 的输入
-        writer_content = f"【精确上下文】：\n{context_text}\n"
+        # 注意这里使用的是 pruned_context
+        writer_content = f"【精确上下文】：\n{pruned_context}\n"
         if user_query:
             writer_content = f"【用户问题】：{user_query}\n" + writer_content
         if feedback_history:
@@ -98,27 +107,31 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
             "temperature": 0.2
         }
         
-        # 触发 Writer 思考
         writer_resp = requests.post(api_url, headers=headers, json=writer_payload).json()
+        
+        # 兜底：如果 Groq 直接在这一步就抛出了 Token 限制的错
+        if 'error' in writer_resp:
+             print(f"[致命错误] API 报错: {writer_resp['error']}")
+             return {"pain_points": ["API Token 耗尽"], "selling_proposals": ["请稍后再试"], "auto_reply_template": "Rate limit exceeded."}
+             
         draft_report_str = writer_resp['choices'][0]['message']['content']
 
-        # ==========================================
-        # 第一层防御：语法守卫 (Syntax Guard)
-        # ==========================================
         try:
             draft_json = json.loads(draft_report_str)
-            print("[多脑协同] -> 语法守卫通过：JSON 格式完全合法。")
         except json.JSONDecodeError as e:
             print(f"[多脑协同] -> 警告！语法守卫拦截！Writer 输出了非法 JSON。打回重写！")
-            feedback_history = f"你生成的 JSON 格式严重错误！解析器报错：{str(e)}。请确保邮件模板中的换行全部转义为 '\\n'，严禁直接使用物理换行！"
+            feedback_history = f"生成的 JSON 格式严重错误！请确保转义换行符为 '\\n'！"
             continue 
 
         # ==========================================
-        # 第二层防御：语义裁判 (Semantic Critic)
+        # 新增限流对抗：给 Groq 的计费漏桶 3 秒钟的回血时间
         # ==========================================
+        print("[系统保护] -> 正在为裁判大脑分配算力配额，短暂休眠 3 秒...")
+        time.sleep(3)
+
         print(f"[多脑协同] -> Agent B (Critic) 正在核查底稿数据一致性...")
         
-        critic_content = f"【原始上下文】：\n{context_text}\n\n【待审核报告】：\n{draft_report_str}"
+        critic_content = f"【原始上下文】：\n{pruned_context}\n\n【待审核报告】：\n{draft_report_str}"
         critic_payload = {
             "model": "llama-3.1-8b-instant",
             "messages": [
@@ -130,17 +143,20 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
         }
 
         critic_resp = requests.post(api_url, headers=headers, json=critic_payload).json()
+        
+        if 'error' in critic_resp:
+             print(f"[致命错误] API 报错: {critic_resp['error']}")
+             return draft_json # 如果裁判被限流，直接强行返回一审底稿
+             
         critic_raw_str = critic_resp['choices'][0]['message']['content']
 
-        # 核心终极防御：裁判自身防弹衣
         try:
             critic_result = json.loads(critic_raw_str)
         except json.JSONDecodeError as e:
-            print(f"[多脑协同] -> 警告！裁判自身输出非法 JSON 导致脑震荡。强行进入下一轮循环！")
-            feedback_history = "内部系统警告：裁判模块刚才发生了语法解析错误。请你（Writer）重新生成一份更精简、绝对规范的底稿供重新审查。"
+            print(f"[多脑协同] -> 警告！裁判自身脑震荡。强行进入下一轮循环！")
+            feedback_history = "内部系统警告：裁判模块发生了语法错误。请重新生成底稿。"
             continue
 
-        # 3. 核心熔断逻辑
         if not critic_result.get("is_hallucinating", True):
             print("[多脑协同] -> 裁判审核通过！未发现幻觉，交付最终报告。")
             return draft_json 
@@ -148,9 +164,6 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
             print(f"[多脑协同] -> 警告！裁判发现幻觉，打回重写！原因：{critic_result.get('feedback')}")
             feedback_history = critic_result.get("feedback")
 
-    # ==========================================
-    # 终极兜底 (Fallback)
-    # ==========================================
     print("\n[多脑协同] -> 达到最大重试次数，系统强制交付当前可用版本。")
     try:
         return json.loads(draft_report_str)
