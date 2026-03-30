@@ -91,7 +91,7 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
         print("\n[算力调度] -> 启动 Agent A (Writer) 线程...")
         
         writer_system_prompt = """你是一个资深的跨境电商产品总监。
-        请根据以下检索到的【精准评论上下文】，输出规范的 JSON 分析报告。绝不能捏造！
+        请根据以下检索到的【精准评论上下文】，输出规范的 JSON 分析报告。绝不能捏造！如果原文只有一个痛点，就只输出一条，数组长度允许为 1。
         【关键认知指令】：买家评论中经常存在两极分化（如有人赞电池，有人骂电池）。这属于真实存在的客诉情况，请分别在痛点和卖点中如实记录，不要自行中和或删减。
         严格遵守格式：
         1. 'pain_points': 基于缺陷提炼建议。（字符串数组，【简体中文】。数量根据实际情况，无则写 ["无"]）
@@ -133,7 +133,7 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
         print("[算力调度] -> 启动 Agent B (Critic) 线程进行数据核验...")
         
         critic_system_prompt = """你是一个极其严苛但具备极高认知弹性的数据审查员 (Critic)。
-        你的唯一任务是核对 Writer 生成的报告是否出现了【幻觉】（捏造了上下文中完全没有的信息）。
+        你的唯一任务是核对 Writer 生成的报告是否出现了【幻觉】（捏造了上下文中完全没有的信息）。禁止重复。
         【防误杀绝对指令】：买家评论中极大概率存在【相互矛盾的观点】。如果 Writer 报告了某个缺点，只要原始上下文中【有任何一位买家】确切提及了该缺点，就绝对不是幻觉！即使原文中同时存在夸赞该属性的评论，你也不得将其判定为幻觉。
         请输出 JSON：
         {"is_hallucinating": true或false, "feedback": "如果造假，指出哪里捏造；如果没有捏造，输出'无'。"}"""
