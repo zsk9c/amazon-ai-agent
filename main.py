@@ -1,54 +1,59 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from schemas import ProductRequest
+from pydantic import BaseModel
+from worker import process_analysis_task
+from celery.result import AsyncResult
 
-# 同时引入两个时代的引擎
-from scraper import scrape_amazon_reviews
-from vector_db import search_memories
-from ai_agent import analyze_reviews_with_ai, analyze_reviews_with_ai_with_rag
+app = FastAPI(title="Amazon AI Agent Gateway V5.0")
 
-app = FastAPI(title="Amazon SaaS AI Agent (V3.0 Hybrid)")
-
+# 解决前后端分离导致的跨域问题 (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # 生产环境应严格配置为前端的实际域名
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+class AnalyzeRequest(BaseModel):
+    url: str = ""
+    user_query: str = ""
+    invite_code: str = ""
+
+# 接口 1：任务派发端 (非阻塞)
 @app.post("/api/analyze")
-def analyze_product_route(request: ProductRequest):
-    if request.invite_code != "626":
-        raise HTTPException(status_code=401, detail="邀请码错误")
+async def start_analyze(request: AnalyzeRequest):
+    if request.invite_code != "AI2026":
+        raise HTTPException(status_code=403, detail="授权失败：非法的系统访问令牌。")
+        
+    if not request.url and not request.user_query:
+        raise HTTPException(status_code=400, detail="协议错误：必须提供商品链接或检索问题。")
 
-    try:
-        # 核心路由逻辑：如果有 URL，走在线爬虫；如果没有，走本地 RAG
-        if request.url and request.url.strip() != "":
-            print("【丘脑路由分配】 -> 模式 1：启动在线实时爬虫引擎")
-            reviews_text = scrape_amazon_reviews(request.url, target_count=20)
-            
-            if not reviews_text:
-                return {"pain_points": ["抓取失败，触发了风控或无数据"], "selling_proposals": ["无"], "auto_reply_template": "无"}
-                
-            final_report = analyze_reviews_with_ai(reviews_text)
-            return final_report
-            
-        else:
-            print("【丘脑路由分配】 -> 模式 2：启动本地 RAG 记忆检索引擎")
-            search_query = request.user_query or "critical complaints or best features"
-            context_text = search_memories(search_query, k=15)
-            
-            if not context_text:
-                return {"pain_points": ["记忆库中未找到相关评论"], "selling_proposals": ["无法提炼"], "auto_reply_template": "无"}
+    # 将沉重的计算任务推入 Celery 队列，瞬间返回！
+    task = process_analysis_task.delay(request.url, request.user_query)
+    
+    return {"task_id": task.id, "status": "Task dispatched to Celery Worker."}
 
-            final_report = analyze_reviews_with_ai_with_rag(context_text, request.user_query)
-            return final_report
-
-    except Exception as e:
-        print(f"执行出错: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# 接口 2：状态轮询端
+@app.get("/api/task/{task_id}")
+async def get_task_status(task_id: str):
+    # 根据前端传来的号码牌，去 Redis 查询任务状态
+    task_result = AsyncResult(task_id)
+    
+    if task_result.state == 'PENDING':
+        return {"state": task_result.state, "status": "任务正在排队中..."}
+    elif task_result.state == 'PROGRESS':
+        return {"state": task_result.state, "status": task_result.info.get('status', '')}
+    elif task_result.state == 'SUCCESS':
+        # 任务完成，返回大模型吐出的最终 JSON 数据
+        if "error" in task_result.info:
+            return {"state": "FAILURE", "error": task_result.info["error"]}
+        return {"state": task_result.state, "result": task_result.result}
+    elif task_result.state == 'FAILURE':
+        return {"state": task_result.state, "error": str(task_result.info)}
+    
+    return {"state": task_result.state}
 
 if __name__ == "__main__":
-    print("正在启动 Amazon SaaS AI Agent 双引擎服务...")
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
