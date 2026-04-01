@@ -33,7 +33,8 @@ def process_analysis_task(self, url: str = None, user_query: str = None):
                 }
                 
             self.update_state(state='PROGRESS', meta={'status': '正在执行多脑协同分析...'})
-            result = analyze_reviews_with_ai(reviews_text)
+            safe_text = reviews_text[:4000]
+            result = analyze_reviews_with_ai(safe_text)
             return result
             
         # 模式 2：本地 RAG 记忆检索引擎

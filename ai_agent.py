@@ -24,6 +24,7 @@ class JSONSyntaxError(Exception):
 def analyze_reviews_with_ai(reviews_text: str) -> dict:
     api_url = "https://api.groq.com/openai/v1/chat/completions"
     api_key = os.getenv("GROQ_API_KEY") 
+    reviews_text = str(reviews_text)[:4000]
     
     if not api_key:
         raise ValueError("严重错误：未找到 GROQ_API_KEY。")
@@ -51,7 +52,7 @@ def analyze_reviews_with_ai(reviews_text: str) -> dict:
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
-        "max_tokens": 4096 
+        "max_tokens": 1500  # 将 8192 改为 1500，把空间让给输入文本
     }
     
     response = requests.post(api_url, headers=headers, json=payload, timeout=30)
@@ -74,7 +75,7 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
         "Content-Type": "application/json"
     }
     
-    pruned_context = context_text[:800] 
+    pruned_context = context_text[:8000] 
     
     # 状态持久化：使用列表在多次重试之间传递被裁判打回的原因
     feedback_history = [] 
@@ -137,11 +138,13 @@ def analyze_reviews_with_ai_with_rag(context_text: str, user_query: str = None) 
 
         print("[算力调度] -> 启动 Agent B (Critic) 线程进行数据核验...")
         
-        critic_system_prompt = """你是一个极其严苛但具备极高认知弹性的数据审查员 (Critic)。
-        你的唯一任务是核对 Writer 生成的报告是否出现了【幻觉】（捏造了上下文中完全没有的信息）。禁止重复。
-        【防误杀绝对指令】：买家评论中极大概率存在【相互矛盾的观点】。如果 Writer 报告了某个缺点，只要原始上下文中【有任何一位买家】确切提及了该缺点，就绝对不是幻觉！即使原文中同时存在夸赞该属性的评论，你也不得将其判定为幻觉。
-        请输出 JSON：
-        {"is_hallucinating": true或false, "feedback": "如果造假，指出哪里捏造；如果没有捏造，输出'无'。"}"""
+        critic_system_prompt = """你是一个极其严苛的数据审查员 (Critic)。
+        你的任务是核对报告：
+        1. 幻觉核验：是否捏造了上下文中没有的信息？
+        2. 冗余核验：是否存在语义重复或观点复读？
+        【重要】：只要原始上下文中有一位买家提及，就不算幻觉。但若同一观点出现两次，必须判定为冗余。
+        输出 JSON：
+        {"is_hallucinating": true或false, "is_redundant": true或false, "feedback": "描述具体问题或输出'无'"}"""
 
         critic_content = f"【原始上下文】：\n{pruned_context}\n\n【待审核报告】：\n{draft_report_str}"
         critic_payload = {
