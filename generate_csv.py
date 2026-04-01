@@ -36,25 +36,30 @@ corpora = {
 }
 
 # 3. 极速造数核心逻辑
-print("正在生成极致真实的 1000 条鼠标商业评论 CSV，请保持专注...")
+print("正在生成原始评论数据并启动物理去重引擎...")
 
 reviews = []
-# 循环生成 100 条评论
+# 循环生成数据
 for _ in range(1000):
-    # 随机选择一个商业维度
     category = random.choice(list(corpora.keys()))
-    # 随机选择 Pro（优点）或 Con（缺点）风格
     review_template = random.choice(corpora[category])
     
-    # 将原始模板包装为英文长评，并注入关键词对冲幻觉
     content = f"Aspect: {category}. "
     content += f"{review_template['pro']} {review_template['con']} "
     content += f"Keywords: {', '.join(review_template['keywords'])}. "
     reviews.append(content)
 
-# 4. Pandas 封箱
+# 4. Pandas 封箱与强行过滤
 df = pd.DataFrame(reviews, columns=['ReviewText'])
-# 如果本地已有 mock_data.csv，强制覆盖
+
+original_count = len(df)
+# 核心阻断：强制按文本内容去重，仅保留第一个出现的唯一语义
+df = df.drop_duplicates(subset=['ReviewText'], keep='first')
+final_count = len(df)
+
+print(f"[数据清洗] 从 {original_count} 条生成数据中，成功切除了 {original_count - final_count} 条重复的垃圾克隆体。")
+
+# 强制覆盖保存
 df.to_csv('mock_data.csv', index=False)
 
-print(f"造数成功！包含 1000 条多维度商业语料的 'mock_data.csv' 已生成在你的项目根目录下。")
+print(f"造数成功！包含 {final_count} 条极度纯净语义的 'mock_data.csv' 已生成在你的项目根目录下。")

@@ -1,3 +1,4 @@
+import sys  # 必须引入 sys
 import os
 from celery import Celery
 from dotenv import load_dotenv
@@ -6,6 +7,39 @@ from scraper import scrape_amazon_reviews
 from vector_db import search_memories
 from ai_agent import analyze_reviews_with_ai, analyze_reviews_with_ai_with_rag
 
+# 注意：这里已经删除了 from celery.signals import worker_process_init
+
+from opentelemetry import trace
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.sdk.resources import Resource 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+# ==========================================
+# 算力节点探针：工业级环境嗅探点火机制 (彻底剥离钩子，裸露在顶层)
+# ==========================================
+# 不用任何函数包裹！当文件被读取时，直接判断当前是被谁启动的。
+# 如果是 Uvicorn (FastAPI) 导入的，sys.argv 里面没有 "celery"，探针静默。
+# 如果是终端打 `celery -A worker worker` 启动的，条件成立，探针瞬间通电！
+if "celery" in sys.argv[0].lower():
+    print("\n[系统监控] -> 嗅探到 Celery 算力引擎启动，正在物理植入 OTel 探针...")
+    
+    resource = Resource(attributes={
+        "service.name": "amazon-ai-worker" 
+    })
+    provider = TracerProvider(resource=resource)
+    processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317", insecure=True))
+    provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
+
+    CeleryInstrumentor().instrument()
+    RequestsInstrumentor().instrument()
+
+# ==========================================
+# 基础业务配置
+# ==========================================
 load_dotenv()
 
 celery_app = Celery(
@@ -45,7 +79,7 @@ def process_analysis_task(self, url: str = None, user_query: str = None):
             search_query = user_query if user_query and user_query.strip() != "" else "critical complaints or best features"
             
             # 严格按 V3.0 的参数传入，明确指定 k 值
-            context_text = search_memories(search_query, k=15)
+            context_text = search_memories(search_query, k=5)
             
             # 恢复 V3.0 逻辑：记忆检索为空的兜底防御
             if not context_text:

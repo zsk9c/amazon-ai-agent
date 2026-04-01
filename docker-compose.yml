@@ -1,0 +1,11 @@
+version: '3'
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: amazon_ai_jaeger
+    ports:
+      - "16686:16686" # Jaeger Web UI 前端面板端口
+      - "4317:4317"   # OTLP gRPC 接收端口 (我们的 Python 代码将向这里发送数据)
+      - "4318:4318"   # OTLP HTTP 接收端口
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true

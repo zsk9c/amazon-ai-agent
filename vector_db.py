@@ -52,10 +52,32 @@ def ingest_data_if_needed():
     return vector_store
 
 # 2. 对外暴露精准记忆调取接口 (Semantic Search)
-def search_memories(user_query: str, k: int = 20):
+def search_memories(user_query: str, k: int = 5):
     # 确保数据库加载
     vector_store = ingest_data_if_needed()
     # 执行语义相似度检索，取出最精准的 K 个相关评论片段
     results = vector_store.similarity_search(user_query, k=k)
-    # 将结果拼接为长文本返回给大模型
-    return "\n---\n".join([doc.page_content for doc in results])
+    
+    # ==========================================
+    # 终极物理防线：利用哈希集合 (Set) 进行 O(1) 极速去重
+    # ==========================================
+    unique_texts = []
+    seen_hashes = set()
+    
+    for doc in results:
+        # 获取纯文本并去除首尾空白
+        content = doc.page_content.strip()
+        
+        # 如果这个文本之前没出现过，才将其加入最终列表
+        if content not in seen_hashes:
+            seen_hashes.add(content)
+            unique_texts.append(content)
+            
+    # 将绝对唯一的干净结果拼接返回给大模型
+    return "\n---\n".join(unique_texts)
+# ==========================================
+# 物理执行触发器 (扳机)
+# ==========================================
+if __name__ == "__main__":
+    print("\n[系统级指令] -> 独立运行此脚本，强制触发向量化入库程序...")
+    ingest_data_if_needed()
